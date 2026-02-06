@@ -1328,6 +1328,8 @@ local function CreateGUI()
     InfoLabel.Font = Enum.Font.Gotham
     InfoLabel.TextSize = 40
 end
+
+
 -- Create GUI
 CreateGUI()
 local CurrentTarget = nil
@@ -1625,6 +1627,8 @@ RunService.RenderStepped:Connect(function(dt)
 end)
 -- ==================== 최종 세련된 오토클릭 + 완벽 속도 슬라이더 ====================
 -- ==================== 오토클릭 + AFK 방지 점프 (B키 토글) ====================
+-- ==================== 오토클릭 + AFK 점프 + 슬라이더 완벽 연동 ====================
+-- ==================== 오토클릭 - 에러 해결 + 툴 자동 장착 최적화 ====================
 do
     local VirtualInputManager = game:GetService("VirtualInputManager")
     local GuiService = game:GetService("GuiService")
@@ -1632,185 +1636,223 @@ do
     local RunService = game:GetService("RunService")
     local Players = game:GetService("Players")
     local LocalPlayer = Players.LocalPlayer
-    local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local Humanoid = Character:WaitForChild("Humanoid")
+
     local AutoEnabled = false
-    local loopConnection = nil
+    local clickLoop = nil       -- task.spawn용 thread
+    local jumpConnection = nil  -- Heartbeat용 Connection
+
     local lastJumpTime = 0
-    local jumpInterval = 20 -- 20초마다 점프
-    _G.AutoClickDelay = _G.AutoClickDelay or 0.08
-    -- 화면 중앙 위치 계산
+    local jumpInterval = 20
+
     local function GetCenterPos()
         local cam = workspace.CurrentCamera
         local size = cam.ViewportSize
         local inset = GuiService:GetGuiInset().Y
         return Vector2.new(size.X / 2, size.Y / 2 + inset / 2)
     end
-    -- 한 번 클릭
+
     local function ClickCenter()
         local pos = GetCenterPos()
         VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
-        task.wait(0.04)
+        task.wait(0.025)
         VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
     end
-    -- 점프 실행 (Humanoid 방식 - 더 안정적)
+
     local function DoJump()
         pcall(function()
-            Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                LocalPlayer.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
         end)
     end
-    -- 토글 함수
+
     local function SetAutoEnabled(enabled)
         if AutoEnabled == enabled then return end
         AutoEnabled = enabled
-        -- 기존 루프 완전 정리 (이게 핵심! 꺼지지 않는 문제 해결)
-        if loopConnection then
-            loopConnection:Disconnect()
-            loopConnection = nil
+
+        -- 기존 루프 완전 정리 (에러 방지)
+        if clickLoop then
+            task.cancel(clickLoop)   -- thread 취소 (task.spawn용)
+            clickLoop = nil
         end
+        if jumpConnection then
+            jumpConnection:Disconnect()
+            jumpConnection = nil
+        end
+
         if enabled then
-            -- 처음 바로 점프
             DoJump()
             lastJumpTime = os.clock()
-            -- 단일 루프로 오토클릭 + 주기적 점프 관리
-            loopConnection = RunService.Heartbeat:Connect(function()
-                if not AutoEnabled then
-                    if loopConnection then loopConnection:Disconnect() end
-                    return
+
+            -- 클릭 루프 (task.spawn으로 delay 실시간 적용)
+            clickLoop = task.spawn(function()
+                while AutoEnabled do
+                    pcall(function()
+                        local char = LocalPlayer.Character
+                        if char then
+                            -- 자동 장착된 툴 있으면 우선 Activate (클릭 씹힘 방지)
+                            local tool = char:FindFirstChildWhichIsA("Tool")
+                            if tool then
+                                tool:Activate()
+                            else
+                                -- 툴 없으면 기존 중앙 클릭
+                                ClickCenter()
+                            end
+                        end
+                    end)
+                    
+                    task.wait(_G.AutoClickDelay or 0.1 + math.random(-20, 40)/1000)  -- 랜덤 변동 추가
                 end
-                -- 오토클릭
-                ClickCenter()
-                -- 20초마다 점프
+            end)
+
+            -- AFK 점프는 Heartbeat로 (안정적)
+            jumpConnection = RunService.Heartbeat:Connect(function()
+                if not AutoEnabled then return end
                 if os.clock() - lastJumpTime >= jumpInterval then
                     DoJump()
                     lastJumpTime = os.clock()
-                    print("AFK 방지 점프 실행 (20초 간격)")
+                    print("AFK 방지 점프")
                 end
-                task.wait(_G.AutoClickDelay)
             end)
+
+            print("오토클릭 ON | delay:", _G.AutoClickDelay)
+        else
+            print("오토클릭 OFF")
         end
-        -- GUI 버튼 업데이트 (기존 GUIObjects.AutoClickBtn 사용)
+
+        -- GUI 버튼 업데이트
         local btn = GUIObjects and GUIObjects.AutoClickBtn
         if btn and btn.Parent then
-            btn.Text = enabled and "오토클릭 & afk : ON (B)" or "오토클릭 & 점프: OFF (B)"
+            btn.Text = enabled and "오토클릭 & afk : ON (B)" or "오토클릭 & afk : OFF (B)"
             btn.BackgroundColor3 = enabled and Color3.fromRGB(0, 140, 0) or Color3.fromRGB(26, 26, 26)
         end
-        print("오토클릭 + 점프: " .. (enabled and "ON" or "OFF"))
     end
-    -- GUI 버튼 연결 (이미 있는 버튼 재활용)
+
+    -- B키 토글
+    UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then return end
+        if input.KeyCode == Enum.KeyCode.B then
+            SetAutoEnabled(not AutoEnabled)
+        end
+    end)
+
+    -- 버튼 클릭 토글
     if GUIObjects and GUIObjects.AutoClickBtn then
         GUIObjects.AutoClickBtn.MouseButton1Click:Connect(function()
             SetAutoEnabled(not AutoEnabled)
         end)
     end
-    -- B 키 토글
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
-        if input.KeyCode == Enum.KeyCode.B then
-            SetAutoEnabled(not AutoEnabled)
-        end
-    end)
-    -- 캐릭터 리스폰 시 Humanoid 재연결
+
+    -- 캐릭터 리스폰 대비 (필요시)
     LocalPlayer.CharacterAdded:Connect(function(newChar)
-        Character = newChar
-        Humanoid = newChar:WaitForChild("Humanoid")
+        -- 추가 초기화 필요하면 여기에
     end)
+
+    -- 초기 delay 설정
+    _G.AutoClickDelay = _G.AutoClickDelay or 0.1
+end
 -- ==================== 오토클릭 + 점프 끝 ====================
-    -- =============== 완벽한 속도 조절 슬라이더 (오토클릭 버튼 바로 아래) ===============
+-- =============== 완벽한 속도 조절 슬라이더 (오토클릭 버튼 바로 아래) ===============
+
+    -- =============== 클릭 속도 슬라이더 ===============
+do
     local container = GUIObjects.ClickContainer
+
     local SliderFrame = Instance.new("Frame")
-    SliderFrame.Size = UDim2.new(0.9, 0, 0, 80)
-    SliderFrame.Position = UDim2.new(0.05, 0, 0, 58)
+    SliderFrame.Size = UDim2.new(0.9, 0, 0, 90)
+    SliderFrame.Position = UDim2.new(0.05, 0, 0, 50)
     SliderFrame.BackgroundTransparency = 1
     SliderFrame.Parent = container
+
     local Title = Instance.new("TextLabel")
     Title.Size = UDim2.new(1, 0, 0, 24)
-    Title.Position = UDim2.new(0, 0, 0, 0)
     Title.BackgroundTransparency = 1
-    Title.Text = "클릭 속도"
-    Title.TextColor3 = Color3.fromRGB(200, 200, 200)
+    Title.Text = "클릭 지연 시간 (낮을수록 CPS ↑)"
+    Title.TextColor3 = Color3.fromRGB(220, 220, 220)
     Title.Font = Enum.Font.GothamMedium
     Title.TextSize = 15
     Title.TextXAlignment = Enum.TextXAlignment.Left
     Title.Parent = SliderFrame
+
     local ValueLabel = Instance.new("TextLabel")
-    ValueLabel.Size = UDim2.new(1, 0, 0, 28)
-    ValueLabel.Position = UDim2.new(0, 0, 0, 22)
+    ValueLabel.Size = UDim2.new(1, 0, 0, 30)
+    ValueLabel.Position = UDim2.new(0, 0, 0, 24)
     ValueLabel.BackgroundTransparency = 1
-    ValueLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+    ValueLabel.TextColor3 = Color3.fromRGB(100, 255, 180)
     ValueLabel.Font = Enum.Font.GothamBold
-    ValueLabel.TextSize = 19
+    ValueLabel.TextSize = 20
     ValueLabel.TextXAlignment = Enum.TextXAlignment.Left
+    ValueLabel.Text = "0.100초 (10.0 CPS)"
     ValueLabel.Parent = SliderFrame
-    -- 트랙 (배경 바)
+
     local Track = Instance.new("Frame")
-    Track.Size = UDim2.new(1, 0, 0, 8)
-    Track.Position = UDim2.new(0, 0, 0, 56)
-    Track.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
-    Track.BorderSizePixel = 0
+    Track.Size = UDim2.new(1, 0, 0, 10)
+    Track.Position = UDim2.new(0, 0, 0, 60)
+    Track.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
     Track.Parent = SliderFrame
-    ApplyRounded(Track, 4)
-    -- 채워지는 부분
+    ApplyRounded(Track, 5)
+
     local Fill = Instance.new("Frame")
-    Fill.Size = UDim2.new(0.5, 0, 1, 0)
-    Fill.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
-    Fill.BorderSizePixel = 0
+    Fill.Size = UDim2.new(0.2, 0, 1, 0)  -- 초기 0.1초 위치
+    Fill.BackgroundColor3 = Color3.fromRGB(0, 220, 100)
     Fill.Parent = Track
-    ApplyRounded(Fill, 4)
-    -- Knob (손잡이)
+    ApplyRounded(Fill, 5)
+
     local Knob = Instance.new("Frame")
-    Knob.Size = UDim2.new(0, 24, 0, 24)
-    Knob.AnchorPoint = Vector2.new(0.5, 0.5) -- 중앙 기준으로 움직임 (핵심!)
-    Knob.BackgroundColor3 = Color3.new(1, 1, 1)
+    Knob.Size = UDim2.new(0, 28, 0, 28)
+    Knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    Knob.Position = UDim2.new(0.2, 0, 0.5, 0)
+    Knob.BackgroundColor3 = Color3.new(1,1,1)
     Knob.Parent = Track
-    ApplyRounded(Knob, 12)
-    ApplyStroke(Knob, 3, Color3.fromRGB(0, 180, 255))
-    -- 드래그 상태 변수
+    ApplyRounded(Knob, 14)
+    ApplyStroke(Knob, 3, Color3.fromRGB(0, 200, 100))
+
     local dragging = false
-    local dragOffsetX = 0
-    -- 드래그 시작 함수 (Track 또는 Knob 클릭 모두 가능)
-    local function startDrag(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            -- Knob 중앙 위치와 마우스 위치 차이 계산
-            local knobCenterX = Knob.AbsolutePosition.X + Knob.AbsoluteSize.X / 2
-            dragOffsetX = input.Position.X - knobCenterX
-        end
+
+    local minDelay, maxDelay = 0.05, 5.5   -- 200 CPS ~ 2 CPS
+
+    local function updateUI()
+        local delay = math.clamp(_G.AutoClickDelay or 0.1, minDelay, maxDelay)
+        local ratio = (delay - minDelay) / (maxDelay - minDelay)
+        Fill.Size = UDim2.new(ratio, 0, 1, 0)
+        Knob.Position = UDim2.new(ratio, 0, 0.5, 0)
+        ValueLabel.Text = string.format("%.3f초 (%.1f CPS)", delay, 1 / delay)
     end
-    Track.InputBegan:Connect(startDrag)
-    Knob.InputBegan:Connect(startDrag) -- Knob 직접 잡아도 드래그 가능
-    -- 드래그 중
-    UserInputService.InputChanged:Connect(function(input)
+
+    local function handleDrag(input)
         if not dragging then return end
-        if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
-        local mouseX = input.Position.X - dragOffsetX
-        local trackLeft = Track.AbsolutePosition.X
-        local trackRight = trackLeft + Track.AbsoluteSize.X
-        local clampedX = math.clamp(mouseX, trackLeft, trackRight)
-        local relX = (clampedX - trackLeft) / Track.AbsoluteSize.X
-        -- 로그 스케일로 지수적 변환 (0.01 ~ 5.0초)
-        local min, max = 0.01, 5.0
-        _G.AutoClickDelay = math.exp(math.log(min) + relX * (math.log(max) - math.log(min)))
-        -- UI 업데이트
-        Fill.Size = UDim2.new(relX, 0, 1, 0)
-        Knob.Position = UDim2.new(relX, 0, 0.5, 0) -- AnchorPoint 때문에 오프셋 0으로 깔끔
-        ValueLabel.Text = string.format("%.3f초 (%.1f CPS)", _G.AutoClickDelay, 1 / _G.AutoClickDelay)
+        local rel = math.clamp((input.Position.X - Track.AbsolutePosition.X) / Track.AbsoluteSize.X, 0, 1)
+        _G.AutoClickDelay = minDelay + (maxDelay - minDelay) * rel
+        updateUI()
+    end
+
+    Track.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            handleDrag(inp)
+        end
     end)
-    -- 드래그 종료
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+
+    Knob.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+        end
+    end)
+
+    game:GetService("UserInputService").InputChanged:Connect(function(inp)
+        if dragging and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
+            handleDrag(inp)
+        end
+    end)
+
+    game:GetService("UserInputService").InputEnded:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
             dragging = false
         end
     end)
-    -- 슬라이더 초기값 반영
-    local function updateSlider()
-        local relX = (math.log(_G.AutoClickDelay) - math.log(0.01)) / (math.log(5.0) - math.log(0.01))
-        relX = math.clamp(relX, 0, 1)
-        Fill.Size = UDim2.new(relX, 0, 1, 0)
-        Knob.Position = UDim2.new(relX, 0, 0.5, 0)
-        ValueLabel.Text = string.format("%.3f초 (%.1f CPS)", _G.AutoClickDelay, 1 / _G.AutoClickDelay)
-    end
-    updateSlider()
+
+    -- 초기화
+    updateUI()
 end
 -- ==================== HP 0 → 5초 후 죽은 자리 TP (완벽 버전) ====================
 do
@@ -1868,7 +1910,6 @@ end
 local Players = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local GuiService = game:GetService("GuiService")
-local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui", 10)
@@ -1878,111 +1919,71 @@ if not playerGui then
     return
 end
 
--- =============================================
---    기존 오토클릭 관련 전역 변수 감지용
--- =============================================
--- 실제 오토클릭이 켜져 있는지 확인할 수 있는 변수가 필요합니다.
--- 대부분의 오토클릭 스크립트에서는 이런 식으로 전역 변수를 씁니다.
--- 만약 당신의 오토클릭 스크립트에서 다른 이름이라면 그 이름으로 바꿔주세요
-local AUTO_CLICK_ENABLED = _G.AutoClickEnabled 
-                     or _G.AutoEnabled 
-                     or _G.AutoClick 
-                     or false   -- 기본값 false
-
--- 오토클릭을 켜고 끄는 함수가 있다면 아래처럼 사용
--- 없으면 강제로 클릭 루프 연결/해제 방식으로 대체 가능
-local function SetAutoClick(state)
-    if _G.SetAutoClick then
-        _G.SetAutoClick(state)
-    elseif _G.AutoClickEnabled ~= nil then
-        _G.AutoClickEnabled = state
-    elseif _G.AutoEnabled ~= nil then
-        _G.AutoEnabled = state
-    end
-    -- 필요하면 여기서 직접 루프 연결/해제 코드를 넣어도 됨
-    print("오토클릭 상태 변경 → " .. tostring(state))
-end
-
--- 현재 오토클릭이 켜져 있었는지 기억할 변수
-local wasAutoClickOn = false
-
--- =============================================
---    알림 GUI
--- =============================================
+-- 알림용 GUI (화면 중앙 위쪽에 잠깐 표시)
 local NotifyGui = Instance.new("ScreenGui")
 NotifyGui.Name = "NotifyGui"
 NotifyGui.ResetOnSpawn = false
 NotifyGui.Parent = playerGui
 
 local NotifyLabel = Instance.new("TextLabel")
-NotifyLabel.Size = UDim2.new(0, 340, 0, 70)
-NotifyLabel.Position = UDim2.new(0.5, -170, 0.08, 0)
-NotifyLabel.BackgroundTransparency = 0.4
-NotifyLabel.BackgroundColor3 = Color3.fromRGB(20, 25, 35)
-NotifyLabel.TextColor3 = Color3.fromRGB(200, 255, 210)
+NotifyLabel.Size = UDim2.new(0, 320, 0, 60)
+NotifyLabel.Position = UDim2.new(0.5, -160, 0.08, 0)
+NotifyLabel.BackgroundTransparency = 0.45
+NotifyLabel.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+NotifyLabel.TextColor3 = Color3.fromRGB(210, 255, 210)
 NotifyLabel.Font = Enum.Font.SourceSansBold
-NotifyLabel.TextSize = 20
+NotifyLabel.TextSize = 19
 NotifyLabel.Text = ""
 NotifyLabel.Visible = false
 NotifyLabel.TextWrapped = true
-NotifyLabel.TextXAlignment = Enum.TextXAlignment.Center
 NotifyLabel.Parent = NotifyGui
 
 local function ShowNotify(title, content, duration)
     NotifyLabel.Text = title .. "\n" .. content
     NotifyLabel.Visible = true
     task.delay(duration or 3.2, function()
-        if NotifyLabel then
-            NotifyLabel.Visible = false
-        end
+        NotifyLabel.Visible = false
     end)
     print("[" .. title .. "] " .. content)
 end
 
--- =============================================
---    GUI 클릭 헬퍼 함수들
--- =============================================
+-- 헬퍼 함수
 local function clickGuiObject(obj)
     if not obj or not obj.Visible or not obj.Active then return end
-    
+
     local pos = obj.AbsolutePosition
     local size = obj.AbsoluteSize
     local topbarInset = GuiService:GetGuiInset().Y
-    
+
     local x = pos.X + size.X / 2
     local y = pos.Y + size.Y / 2 + topbarInset
-    
+
     VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
-    task.wait(0.035)
+    task.wait(0.04)
     VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
 end
 
 local function findDigitButton(keyFrame, digit)
-    for _, btn in ipairs(keyFrame:GetChildren()) do
-        if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and tostring(btn.Text) == digit then
+    for _, btn in keyFrame:GetChildren() do
+        if (btn:IsA("TextButton") or btn:IsA("ImageButton")) and btn.Text == digit then
             return btn
         end
     end
     return nil
 end
 
--- =============================================
---    메인 매크로 우회 루프
--- =============================================
-ShowNotify("매크로 자동 우회", "감지 시 자동으로 숫자 입력합니다", 4.5)
+-- 메인 자동 우회 루프
+ShowNotify("자동 우회 시작", "매크로 감지 시 자동 입력합니다", 4.5)
 
 task.spawn(function()
     while true do
-        task.wait(0.85 + math.random(-8,8)/100)  -- 약간의 랜덤성 추가
+        task.wait(0.9)
 
         pcall(function()
             local gui = playerGui:FindFirstChild("MacroGui")
             if not gui or not gui.Enabled then return end
 
-            local root = gui:FindFirstChild("Frame") 
-                       or gui:FindFirstChild("MacroClient") 
-                       or gui
-
+            local root = gui:FindFirstChild("Frame") or gui:FindFirstChild("MacroClient") or gui
             if not root then return end
 
             local display = root:FindFirstChild("Frame")
@@ -1991,115 +1992,56 @@ task.spawn(function()
 
             if not (display and keyFrame) then return end
 
-            local inputLabel = display:FindFirstChild("Input") 
-                             or display:FindFirstChildWhichIsA("TextLabel")
-            local outputBox = display:FindFirstChild("TextBox") 
-                           or display:FindFirstChildWhichIsA("TextBox")
+            local inputLabel = display:FindFirstChild("Input") or display:FindFirstChildWhichIsA("TextLabel")
+            local outputBox = display:FindFirstChild("TextBox")
 
             if not (inputLabel and outputBox) then return end
 
             local targetNum = inputLabel.Text:match("%d%d%d%d")
-            if not targetNum then return end
-            if outputBox.Text == targetNum then return end
+            if not targetNum or outputBox.Text == targetNum then return end
 
-            -- 매크로 감지 성공
-            ShowNotify("매크로 감지됨", "목표 : " .. targetNum, 4)
+            ShowNotify("매크로 감지", "목표 숫자 : " .. targetNum, 3.8)
 
-            -- 1. 오토클릭이 켜져 있었다면 끄기
-            wasAutoClickOn = AUTO_CLICK_ENABLED or false
-            if wasAutoClickOn then
-                SetAutoClick(false)
-                ShowNotify("오토클릭 일시정지", "매크로 입력 중...", 2.5)
-            end
-
-            -- 2. 키패드 열기
+            -- 키패드 열기
             if not keyFrame.Visible then
                 clickGuiObject(outputBox)
-                task.wait(0.8 + math.random(0,15)/100)
+                task.wait(0.75)
             end
 
-            -- 3. 리셋 버튼 여러 번 누르기
+            -- 리셋 (필요하면 여러 번)
             local resetBtn = resetFrame and resetFrame:FindFirstChildWhichIsA("TextButton")
             if resetBtn then
-                for i = 1, 7 do
+                for _ = 1, 6 do
                     if outputBox.Text == "" then break end
                     clickGuiObject(resetBtn)
-                    task.wait(0.22 + math.random(-4,6)/100)
+                    task.wait(0.3)
                 end
             end
 
-            task.wait(0.4)
+            task.wait(0.45)
 
-            -- 4. 숫자 하나씩 입력 (랜덤 딜레이 추가)
+            -- 숫자 입력
             if outputBox.Text == "" then
                 for i = 1, #targetNum do
-                    local digit = targetNum:sub(i,i)
+                    local digit = targetNum:sub(i, i)
                     local btn = findDigitButton(keyFrame, digit)
+
                     if btn then
                         clickGuiObject(btn)
-                        task.wait(0.24 + math.random(4, 14)/100)  -- 0.24 ~ 0.38초 사이
+                        task.wait(0.26 + math.random(0, 10) / 100)  -- 살짝 랜덤 딜레이
                     else
-                        warn("버튼 못 찾음 : " .. digit)
+                        warn("숫자 버튼을 찾을 수 없음 : " .. digit)
                     end
                 end
-                print("입력 완료 : " .. targetNum)
+                print("입력 완료 → " .. targetNum)
             end
 
-            task.wait(2.2)
-
-            -- 5. 오토클릭 원상복구
-            if wasAutoClickOn then
-                SetAutoClick(true)
-                ShowNotify("오토클릭 재개", "입력 완료!", 2.8)
-                wasAutoClickOn = false
-            end
-
+            task.wait(2.4)
         end)
     end
 end)
--- 매크로 GUI 감지 → 오토클릭만 제어 (오토팜은 그대로 둠)
-task.spawn(function()
-    local wasAutoClickOn = false  -- 매크로 나타날 때 오토클릭이 켜져 있었는지 기억
 
-    while true do
-        task.wait(0.75 + math.random(-5, 8)/100)
 
-        pcall(function()
-            local macroGui = playerGui:FindFirstChild("MacroGui")
-
-            if macroGui and macroGui.Enabled then
-                -- 매크로 GUI가 켜진 상태
-                if not wasAutoClickOn then
-                    -- 처음 발견한 순간에만 상태 저장 & 오토클릭 끄기
-                    wasAutoClickOn = AutoEnabled or false   -- ← 여기 변수명 당신 코드에 맞게 수정
-                    if wasAutoClickOn then
-                        SetAutoEnabled(false)               -- ← 여기 함수명 당신 코드에 맞게 수정
-                        if GUIObjects and GUIObjects.AutoClickBtn then
-                            GUIObjects.AutoClickBtn.Text = "오토클릭 & afk : OFF (매크로 감지)"
-                            GUIObjects.AutoClickBtn.BackgroundColor3 = Color3.fromRGB(120, 0, 0)
-                        end
-                        print("[매크로 감지] 오토클릭 강제 OFF")
-                    end
-                end
-
-                -- (기존 숫자 입력 로직은 여기에 그대로 두세요)
-                -- ... 입력 코드 ...
-
-            else
-                -- 매크로 GUI가 사라진 상태 → 오토클릭 복구
-                if wasAutoClickOn then
-                    SetAutoEnabled(true)
-                    if GUIObjects and GUIObjects.AutoClickBtn then
-                        GUIObjects.AutoClickBtn.Text = "오토클릭 & afk : ON (B)"
-                        GUIObjects.AutoClickBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 0)
-                    end
-                    print("[매크로 해제] 오토클릭 원상복구")
-                    wasAutoClickOn = false
-                end
-            end
-        end)
-    end
-end)
 -- 오토팜 OFF 시 노클립 완전 정리 (안전장치)
 game.Players.LocalPlayer.AncestryChanged:Connect(function()
     if not AutoFarmEnabled and NoclipEnabled then
