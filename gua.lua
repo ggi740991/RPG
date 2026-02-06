@@ -2057,7 +2057,49 @@ task.spawn(function()
         end)
     end
 end)
+-- 매크로 GUI 감지 → 오토클릭만 제어 (오토팜은 그대로 둠)
+task.spawn(function()
+    local wasAutoClickOn = false  -- 매크로 나타날 때 오토클릭이 켜져 있었는지 기억
 
+    while true do
+        task.wait(0.75 + math.random(-5, 8)/100)
+
+        pcall(function()
+            local macroGui = playerGui:FindFirstChild("MacroGui")
+
+            if macroGui and macroGui.Enabled then
+                -- 매크로 GUI가 켜진 상태
+                if not wasAutoClickOn then
+                    -- 처음 발견한 순간에만 상태 저장 & 오토클릭 끄기
+                    wasAutoClickOn = AutoEnabled or false   -- ← 여기 변수명 당신 코드에 맞게 수정
+                    if wasAutoClickOn then
+                        SetAutoEnabled(false)               -- ← 여기 함수명 당신 코드에 맞게 수정
+                        if GUIObjects and GUIObjects.AutoClickBtn then
+                            GUIObjects.AutoClickBtn.Text = "오토클릭 & afk : OFF (매크로 감지)"
+                            GUIObjects.AutoClickBtn.BackgroundColor3 = Color3.fromRGB(120, 0, 0)
+                        end
+                        print("[매크로 감지] 오토클릭 강제 OFF")
+                    end
+                end
+
+                -- (기존 숫자 입력 로직은 여기에 그대로 두세요)
+                -- ... 입력 코드 ...
+
+            else
+                -- 매크로 GUI가 사라진 상태 → 오토클릭 복구
+                if wasAutoClickOn then
+                    SetAutoEnabled(true)
+                    if GUIObjects and GUIObjects.AutoClickBtn then
+                        GUIObjects.AutoClickBtn.Text = "오토클릭 & afk : ON (B)"
+                        GUIObjects.AutoClickBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 0)
+                    end
+                    print("[매크로 해제] 오토클릭 원상복구")
+                    wasAutoClickOn = false
+                end
+            end
+        end)
+    end
+end)
 -- 오토팜 OFF 시 노클립 완전 정리 (안전장치)
 game.Players.LocalPlayer.AncestryChanged:Connect(function()
     if not AutoFarmEnabled and NoclipEnabled then
