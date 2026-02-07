@@ -1624,11 +1624,16 @@ do
     local LocalPlayer = Players.LocalPlayer
 
     local AutoEnabled = false
-    local clickLoop = nil       -- task.spawn용 thread
-    local jumpConnection = nil  -- Heartbeat용 Connection
+    local clickLoop = nil       -- 빠른 클릭용
+    local jumpConnection = nil  -- AFK 점프용
+    local slowClickConnection = nil  -- ← 5분 주기 클릭용 추가
 
     local lastJumpTime = 0
     local jumpInterval = 20
+
+    -- 5분 주기 클릭 설정
+    local SLOW_CLICK_INTERVAL = 300          -- 300초 = 5분
+    local lastSlowClickTime = 0
 
     local function GetCenterPos()
         local cam = workspace.CurrentCamera
@@ -1656,42 +1661,45 @@ do
         if AutoEnabled == enabled then return end
         AutoEnabled = enabled
 
-        -- 기존 루프 완전 정리 (에러 방지)
+        -- 기존 연결 모두 정리
         if clickLoop then
-            task.cancel(clickLoop)   -- thread 취소 (task.spawn용)
+            task.cancel(clickLoop)
             clickLoop = nil
         end
         if jumpConnection then
             jumpConnection:Disconnect()
             jumpConnection = nil
         end
+        if slowClickConnection then
+            slowClickConnection:Disconnect()
+            slowClickConnection = nil
+        end
 
         if enabled then
             DoJump()
             lastJumpTime = os.clock()
+            lastSlowClickTime = os.clock()   -- 시작 시점 초기화
 
-            -- 클릭 루프 (task.spawn으로 delay 실시간 적용)
+            -- 빠른 오토클릭 (기존)
             clickLoop = task.spawn(function()
                 while AutoEnabled do
                     pcall(function()
                         local char = LocalPlayer.Character
                         if char then
-                            -- 자동 장착된 툴 있으면 우선 Activate (클릭 씹힘 방지)
                             local tool = char:FindFirstChildWhichIsA("Tool")
                             if tool then
                                 tool:Activate()
                             else
-                                -- 툴 없으면 기존 중앙 클릭
                                 ClickCenter()
                             end
                         end
                     end)
                     
-                    task.wait(_G.AutoClickDelay or 0.1 + math.random(-20, 40)/1000)  -- 랜덤 변동 추가
+                    task.wait(_G.AutoClickDelay or 0.1 + math.random(-20, 40)/1000)
                 end
             end)
 
-            -- AFK 점프는 Heartbeat로 (안정적)
+            -- AFK 방지 점프 (기존)
             jumpConnection = RunService.Heartbeat:Connect(function()
                 if not AutoEnabled then return end
                 if os.clock() - lastJumpTime >= jumpInterval then
@@ -1701,9 +1709,21 @@ do
                 end
             end)
 
-            print("오토클릭 ON | delay:", _G.AutoClickDelay)
+            -- 5분마다 한 번 클릭 (추가)
+            slowClickConnection = RunService.Heartbeat:Connect(function()
+                if not AutoEnabled then return end
+
+                local now = os.clock()
+                if now - lastSlowClickTime >= SLOW_CLICK_INTERVAL then
+                    ClickCenter()
+                    lastSlowClickTime = now
+                    print("5분 주기 화면 클릭 실행")
+                end
+            end)
+
+            print("오토클릭 ON | delay:", _G.AutoClickDelay, "| 5분 주기 클릭 ON")
         else
-            print("오토클릭 OFF")
+            print("오토클릭 OFF | 5분 주기 클릭도 OFF")
         end
 
         -- GUI 버튼 업데이트
@@ -1722,20 +1742,22 @@ do
         end
     end)
 
-    -- 버튼 클릭 토글
+    -- GUI 버튼 클릭 토글
     if GUIObjects and GUIObjects.AutoClickBtn then
         GUIObjects.AutoClickBtn.MouseButton1Click:Connect(function()
             SetAutoEnabled(not AutoEnabled)
         end)
     end
 
-    -- 캐릭터 리스폰 대비 (필요시)
+    -- 캐릭터 리스폰 대비
     LocalPlayer.CharacterAdded:Connect(function(newChar)
-        -- 추가 초기화 필요하면 여기에
+        -- 필요하면 여기에 추가 초기화
     end)
 
     -- 초기 delay 설정
     _G.AutoClickDelay = _G.AutoClickDelay or 0.1
+
+    print("스크립트 로드 완료 (5분 주기 클릭 포함)")
 end
 -- ==================== 오토클릭 + 점프 끝 ====================
 -- =============== 완벽한 속도 조절 슬라이더 (오토클릭 버튼 바로 아래) ===============
