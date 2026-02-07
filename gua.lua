@@ -1332,84 +1332,95 @@ end
 
 -- Create GUI
 CreateGUI()
-local CurrentTarget = nil
-local TargetLockTime = 0
-local LOCK_DURATION = 0.5  -- 0.5초 동안 타겟 고정 (스폰돼도 안 바꿈)
-
--- 몹 폴더 실시간 감시용 연결 (한 번만 연결)
-local mobsFolderConnection = nil
-
 local function UpdateTargetList()
     TargetList = {}
-    local folder = workspace:FindFirstChild(MOBS_FOLDER_NAME)
+    local folder = Workspace:FindFirstChild(MOBS_FOLDER_NAME)
     if not folder then return end
+    
+    local primaries = {}
+    local secondaries = {}
+    local others = {}
 
-    -- 폴더가 처음 발견되면 ChildAdded 이벤트 연결 (실시간 스폰 감지)
-    if not mobsFolderConnection then
-        mobsFolderConnection = folder.ChildAdded:Connect(function(child)
-            -- 새 몹 추가될 때마다 즉시 리스트 갱신 트리거
-            task.defer(UpdateTargetList)  -- 다음 프레임에 갱신
-        end)
-    end
-
+    -- 1. 일단 모든 몹을 분류해서 담기
     for _, obj in ipairs(folder:GetChildren()) do
         if not obj:IsA("Model") then continue end
-        
         local hum = obj:FindFirstChild("Humanoid")
-        if not hum or hum.Health <= 0 then continue end
-        
-        table.insert(TargetList, obj)
+        if not hum or hum.Health <= 0 then continue end -- 죽은 몹 제외
+
+        if FixedMonsterNames.Primary and obj.Name == FixedMonsterNames.Primary then
+            table.insert(primaries, obj)
+        elseif FixedMonsterNames.Secondary and obj.Name == FixedMonsterNames.Secondary then
+            table.insert(secondaries, obj)
+        elseif not FixedMonsterNames.Primary and not FixedMonsterNames.Secondary then
+            -- 1, 2순위 둘 다 설정 안 했을 때만 일반 몹 추가
+            table.insert(others, obj)
+        end
+    end
+
+    -- 2. 우선순위에 따라 TargetList 교체 (이전에는 섞여 들어갔음)
+    if #primaries > 0 then
+        TargetList = primaries -- 1순위가 있으면 1순위만 타겟!
+    elseif #secondaries > 0 then
+        TargetList = secondaries -- 1순위 없고 2순위만 있으면 2순위 타겟!
+    else
+        TargetList = others
     end
 end
 
 local function SelectBestTarget()
-    local now = tick()
-    
-    -- 현재 타겟 살아있고 락 시간 내이면 유지
-    if CurrentTarget and CurrentTarget.Parent and (now - TargetLockTime < LOCK_DURATION) then
-        local hum = CurrentTarget:FindFirstChild("Humanoid")
-        if hum and hum.Health > 0 then
-            return
-        end
+    if #TargetList == 0 then
+        CurrentTarget = nil
+        return
     end
 
+    -- ┌───────────────────────────────────────────────┐
+    -- │ 가장 가까운 몹 찾는 로직 → 완전히 제거       │
+    -- └───────────────────────────────────────────────┘
+    -- local myHrp = LocalPlayer.Character
+    --     and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    -- if not myHrp then
+    --     CurrentTarget = TargetList[1]
+    --     return
+    -- end
+    -- local bestMob = nil
+    -- local bestDist = math.huge
+    -- for _, mob in ipairs(TargetList) do
+    --     local mobHrp = mob:FindFirstChild("HumanoidRootPart")
+    --                 or mob.PrimaryPart
+    --     if not mobHrp then continue end
+    --     local dist = (myHrp.Position - mobHrp.Position).Magnitude
+    --     if dist < bestDist then
+    --         bestDist = dist
+    --         bestMob = mob
+    --     end
+    -- end
+
+    -- ┌───────────────────────────────────────────────┐
+    -- │ 대신 : TargetList의 맨 앞에 있는 살아있는 몹 선택 │
+    -- └───────────────────────────────────────────────┘
     CurrentTarget = nil
 
-    if #TargetList == 0 then return end
-
-    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not myHrp then return end
-
-    local bestMob, bestDist, bestPri = nil, math.huge, 4
-
     for _, mob in ipairs(TargetList) do
-        local root = mob:FindFirstChild("HumanoidRootPart") or mob.PrimaryPart
-        if not root then continue end
-
-        local dist = (myHrp.Position - root.Position).Magnitude
-        local pri = 3
-
-        if FixedMonsterNames.Primary and mob.Name == FixedMonsterNames.Primary then pri = 1
-        elseif FixedMonsterNames.Secondary and mob.Name == FixedMonsterNames.Secondary then pri = 2 end
-
-        if pri < bestPri or (pri == bestPri and dist < bestDist) then
-            bestPri = pri
-            bestDist = dist
-            bestMob = mob
+        local hum = mob:FindFirstChild("Humanoid")
+        if hum and hum.Health > 0 then
+            CurrentTarget = mob
+            break
         end
     end
 
-    if bestMob then
-        CurrentTarget = bestMob
-        TargetLockTime = tick()
-    end
+    -- (선택) 디버깅용 출력
+    -- if CurrentTarget then
+    --     print("CurrentTarget →", CurrentTarget.Name)
+    -- else
+    --     print("살아있는 1/2순위 몹 없음")
+    -- end
 end
+
 local function UpdateGUI()
     if not GUIObjects.MainContainer or not GUIObjects.MainContainer.Visible then return end
     if CurrentTarget and CurrentTarget.Parent then
         GUIObjects.NameLabel.Text = "1순위: ".. (FixedMonsterNames.Primary or "없음") .. " → 현재 타겟: " .. CurrentTarget.Name
         GUIObjects.SecondaryLabel.Text = "2순위: " .. (FixedMonsterNames.Secondary or "없음")
-      
         local ok, lvl = pcall(function() return require(CurrentTarget:FindFirstChild("Config")).RequireLevel end)
         GUIObjects.LevelLabel.Text = "최소 레벨: "..(ok and lvl or "-")
         local hum = CurrentTarget:FindFirstChild("Humanoid")
@@ -1421,180 +1432,156 @@ local function UpdateGUI()
         GUIObjects.HealthLabel.Text = "체력: - / -"
     end
 end
--- 전역 플래그 추가 (스크립트 상단에 한 번만 추가)
--- 전역 플래그 (스크립트 상단에 추가)
+
 local primaryWasNil = true
 local isFloating = false -- 10000스터드 고정 중인지
+local arrivedAtMemoryPos = false   -- ← 이 변수는 스크립트 최상단이나 전역으로 선언
+
+-- 스크립트 최상단에 선언
+local arrivedAtPrimary = false
+local arrivedAtSecondary = false
+local lastPrimaryCount = 0
+local lastSecondaryCount = 0
+
 RunService.RenderStepped:Connect(function(dt)
-    if not AutoFarmEnabled or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then 
-        return 
+    if not AutoFarmEnabled or not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then
+        return
     end
 
-    local hrp = LocalPlayer.Character.HumanoidRootPart
+    local hrp = LocalPlayer.Character.PrimaryPart
+    local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+    if not humanoid then return end
+
+    -- 내 체력 퍼센트
+    local hpPercent = (humanoid.Health / humanoid.MaxHealth) * 100
+    local HP_THRESHOLD = 30   -- 체력 30% 이상이면 1순위 OK (원하는 값으로 변경)
 
     UpdateTargetList()
     SelectBestTarget()
     UpdateGUI()
 
-    _G.LastYCheck = _G.LastYCheck or {pos = hrp.Position.Y, time = tick()}
+    local primaryName = FixedMonsterNames.Primary
+    local secondaryName = FixedMonsterNames.Secondary
 
-    if FixedMonsterNames.Primary == nil then
-        if not primaryWasNil then
-            arrivedAtMemoryPos = false
-            primaryWasNil = true
-        end
-    else
-        primaryWasNil = false
-    end
+    -- 현재 살아있는 몹 수 세기 (스폰 감지용 + 2순위 존재 여부용)
+    local currentPrimaryCount = 0
+    local currentSecondaryCount = 0
 
-    local hasPrimary = false
-    local hasSecondary = false
     for _, mob in ipairs(TargetList) do
-        if FixedMonsterNames.Primary and mob.Name == FixedMonsterNames.Primary then
-            hasPrimary = true
-        end
-        if FixedMonsterNames.Secondary and mob.Name == FixedMonsterNames.Secondary then
-            hasSecondary = true
+        local hum = mob:FindFirstChild("Humanoid")
+        if hum and hum.Health > 0 then
+            if primaryName and mob.Name == primaryName then
+                currentPrimaryCount += 1
+            end
+            if secondaryName and mob.Name == secondaryName then
+                currentSecondaryCount += 1
+            end
         end
     end
 
-    -- 1순위 처리
-    if hasPrimary then
-        local targetMemoryPos = MONSTER_POSITIONS[FixedMonsterNames.Primary]
-        if targetMemoryPos then
-            local destination = targetMemoryPos + Vector3.new(0, 5, 0)
-            if not arrivedAtMemoryPos then
-                local dist = (hrp.Position - destination).Magnitude
-                if MoveMode == "Instant" then
+    -- 새 몹 스폰 감지 → arrived 초기화
+    if currentPrimaryCount > lastPrimaryCount then
+        arrivedAtPrimary = false
+    end
+    if currentSecondaryCount > lastSecondaryCount then
+        arrivedAtSecondary = false
+    end
+
+    lastPrimaryCount = currentPrimaryCount
+    lastSecondaryCount = currentSecondaryCount
+
+    local targetName = nil
+    local targetPos = nil
+
+    -- 1. 내 체력이 충분하고 1순위가 살아있으면 → 1순위
+    if hpPercent >= HP_THRESHOLD and primaryName and MONSTER_POSITIONS[primaryName] and currentPrimaryCount > 0 then
+        targetName = primaryName
+        targetPos = MONSTER_POSITIONS[primaryName]
+    -- 2. 체력 부족이거나 1순위 몹이 없으면 → 2순위 (살아있는 2순위가 있으면)
+    elseif secondaryName and MONSTER_POSITIONS[secondaryName] and currentSecondaryCount > 0 then
+        targetName = secondaryName
+        targetPos = MONSTER_POSITIONS[secondaryName]
+    end
+
+    -- ==============================================
+    -- 결정된 타겟으로 이동 (좌표 한 번만)
+    -- ==============================================
+    if targetName and targetPos then
+        local destination = targetPos + Vector3.new(0, 5, 0)
+        local dist = (hrp.Position - destination).Magnitude
+
+        local arrivedVar = (targetName == primaryName) and arrivedAtPrimary or arrivedAtSecondary
+
+        if not arrivedVar then
+            if MoveMode == "Instant" then
+                pcall(function()
+                    hrp.CFrame = CFrame.new(destination)
+                    hrp.Velocity = Vector3.new(0, 0, 0)
+                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                end)
+            else
+                local speedThisFrame = MOVE_SPEED * dt
+                if dist > 1 then
+                    local direction = (destination - hrp.Position).Unit
+                    local newPos = hrp.Position + direction * speedThisFrame
                     pcall(function()
-                        hrp.CFrame = CFrame.new(destination)
+                        hrp.CFrame = CFrame.new(newPos)
                         hrp.Velocity = Vector3.new(0, 0, 0)
                     end)
-                    arrivedAtMemoryPos = true
-                else
-                    local speedThisFrame = MOVE_SPEED * dt
-                    if dist > 1 then
-                        local direction = (destination - hrp.Position).Unit
-                        local newPos = hrp.Position + direction * speedThisFrame
-                        pcall(function()
-                            hrp.CFrame = CFrame.new(newPos)
-                            hrp.Velocity = Vector3.new(0, 0, 0)
-                        end)
-                    else
-                        pcall(function()
-                            hrp.CFrame = CFrame.new(destination)
-                            hrp.Velocity = Vector3.new(0, 0, 0)
-                        end)
-                        arrivedAtMemoryPos = true
-                    end
-                end
-            else
-                if CurrentTarget and CurrentTarget.Name == FixedMonsterNames.Primary then
-                    local mobHrp = CurrentTarget:FindFirstChild("HumanoidRootPart") or CurrentTarget.PrimaryPart
-                    if mobHrp then
-                        local offset = GetDirectionLocalOffset(TP_DIRECTION, TP_DISTANCE)
-                        local targetPos = (mobHrp.CFrame * CFrame.new(offset)).Position
-                        pcall(function()
-                            if MoveMode == "Instant" then
-                                hrp.CFrame = CFrame.new(targetPos, mobHrp.Position)
-                            else
-                                local current = hrp.Position
-                                local lerp = math.min(30 * dt, 1)
-                                local newX = current.X + (targetPos.X - current.X) * lerp
-                                local newZ = current.Z + (targetPos.Z - current.Z) * lerp
-                                hrp.CFrame = CFrame.new(Vector3.new(newX, targetPos.Y, newZ), mobHrp.Position)
-                            end
-                            hrp.Velocity = Vector3.new(0, 0, 0)
-                        end)
-                    end
                 end
             end
+
+            if dist < 20 then
+                if targetName == primaryName then
+                    arrivedAtPrimary = true
+                else
+                    arrivedAtSecondary = true
+                end
+            end
+
             isFloating = false
             return
         end
-    end
 
-    -- 2순위 처리
-    if not hasPrimary and hasSecondary then
-        local targetMemoryPos = MONSTER_POSITIONS[FixedMonsterNames.Secondary]
-        if targetMemoryPos then
-            local destination = targetMemoryPos + Vector3.new(0, 5, 0)
-            if not arrivedAtMemoryPos then
-                local dist = (hrp.Position - destination).Magnitude
-                if MoveMode == "Instant" then
-                    pcall(function()
-                        hrp.CFrame = CFrame.new(destination)
-                        hrp.Velocity = Vector3.new(0, 0, 0)
-                    end)
-                    arrivedAtMemoryPos = true
-                else
-                    local speedThisFrame = MOVE_SPEED * dt
-                    if dist > 1 then
-                        local direction = (destination - hrp.Position).Unit
-                        local newPos = hrp.Position + direction * speedThisFrame
-                        pcall(function()
-                            hrp.CFrame = CFrame.new(newPos)
-                            hrp.Velocity = Vector3.new(0, 0, 0)
-                        end)
+        -- 좌표 도착 후 → 해당 타겟 따라가기
+        if CurrentTarget and CurrentTarget.Name == targetName and CurrentTarget.Parent then
+            local mobHrp = CurrentTarget:FindFirstChild("HumanoidRootPart") or CurrentTarget.PrimaryPart
+            if mobHrp then
+                local offset = GetDirectionLocalOffset(TP_DIRECTION, TP_DISTANCE)
+                local targetPos = (mobHrp.CFrame * CFrame.new(offset)).Position
+
+                pcall(function()
+                    if MoveMode == "Instant" then
+                        hrp.CFrame = CFrame.new(targetPos, mobHrp.Position)
                     else
-                        pcall(function()
-                            hrp.CFrame = CFrame.new(destination)
-                            hrp.Velocity = Vector3.new(0, 0, 0)
-                        end)
-                        arrivedAtMemoryPos = true
+                        local current = hrp.Position
+                        local lerp = math.min(30 * dt, 1)
+                        local newX = current.X + (targetPos.X - current.X) * lerp
+                        local newZ = current.Z + (targetPos.Z - current.Z) * lerp
+                        hrp.CFrame = CFrame.new(Vector3.new(newX, targetPos.Y, newZ), mobHrp.Position)
                     end
-                end
-            else
-                if CurrentTarget and CurrentTarget.Name == FixedMonsterNames.Secondary then
-                    local mobHrp = CurrentTarget:FindFirstChild("HumanoidRootPart") or CurrentTarget.PrimaryPart
-                    if mobHrp then
-                        local offset = GetDirectionLocalOffset(TP_DIRECTION, TP_DISTANCE)
-                        local targetPos = (mobHrp.CFrame * CFrame.new(offset)).Position
-                        pcall(function()
-                            if MoveMode == "Instant" then
-                                hrp.CFrame = CFrame.new(targetPos, mobHrp.Position)
-                            else
-                                local current = hrp.Position
-                                local lerp = math.min(30 * dt, 1)
-                                local newX = current.X + (targetPos.X - current.X) * lerp
-                                local newZ = current.Z + (targetPos.Z - current.Z) * lerp
-                                hrp.CFrame = CFrame.new(Vector3.new(newX, targetPos.Y, newZ), mobHrp.Position)
-                            end
-                            hrp.Velocity = Vector3.new(0, 0, 0)
-                        end)
-                    end
-                end
+                    hrp.Velocity = Vector3.new(0, 0, 0)
+                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                end)
             end
-            isFloating = false
-            return
         end
-    end
 
-    -- 1,2순위 둘 다 없을 때 플로팅
-    if not hasPrimary and not hasSecondary then
-        if not isFloating then
-            pcall(function()
-                local floatPos = hrp.Position + Vector3.new(0, 10, 0)
-                hrp.CFrame = CFrame.new(floatPos)
-                hrp.Velocity = Vector3.new(0, 0, 0)
-            end)
-            isFloating = true
-            arrivedAtMemoryPos = false
-        else
-            hrp.Velocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-        end
-        return
-    else
         isFloating = false
+        return
     end
 
-    -- 일반 몹 따라가기
-    if CurrentTarget then
-        local mobHrp = CurrentTarget:FindFirstChild("HumanoidRootPart") or CurrentTarget.PrimaryPart
+    -- 둘 다 없거나 조건 불만족 → 일반 동작
+    arrivedAtPrimary = false
+    arrivedAtSecondary = false
+
+    if CurrentTarget and CurrentTarget.Parent then
+        local mobHrp = CurrentTarget:FindFirstChild("HumanoidRootPart") 
+                   or CurrentTarget.PrimaryPart
+
         if mobHrp then
             local offset = GetDirectionLocalOffset(TP_DIRECTION, TP_DISTANCE)
             local targetPos = (mobHrp.CFrame * CFrame.new(offset)).Position
+
             pcall(function()
                 if MoveMode == "Instant" then
                     hrp.CFrame = CFrame.new(targetPos, mobHrp.Position)
@@ -1606,23 +1593,22 @@ RunService.RenderStepped:Connect(function(dt)
                     hrp.CFrame = CFrame.new(Vector3.new(newX, targetPos.Y, newZ), mobHrp.Position)
                 end
                 hrp.Velocity = Vector3.new(0, 0, 0)
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
             end)
         end
-    end
-
-    -- 추락 방지
-    local currentY = hrp.Position.Y
-    local currentTime = tick()
-    if currentTime - _G.LastYCheck.time >= 0.5 then
-        local fallDistance = _G.LastYCheck.pos - currentY
-        if fallDistance > 150 then
+    else
+        if not isFloating then
             pcall(function()
-                hrp.CFrame = hrp.CFrame + Vector3.new(0, 10, 0)
+                local floatPos = hrp.Position + Vector3.new(0, 100, 0)
+                hrp.CFrame = CFrame.new(floatPos)
                 hrp.Velocity = Vector3.new(0, 0, 0)
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
             end)
+            isFloating = true
+        else
+            hrp.Velocity = Vector3.new(0, 0, 0)
+            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         end
-        _G.LastYCheck.pos = currentY
-        _G.LastYCheck.time = currentTime
     end
 end)
 -- ==================== 최종 세련된 오토클릭 + 완벽 속도 슬라이더 ====================
