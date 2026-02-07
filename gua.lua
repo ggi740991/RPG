@@ -2039,3 +2039,16 @@ game.Players.LocalPlayer.AncestryChanged:Connect(function()
     end
 end)
 
+local VirtualUser = game:GetService("VirtualUser")
+local Players = game:GetService("Players")
+
+local player = Players.LocalPlayer
+
+while true do
+    task.wait(600)  -- 5분 = 300초
+    
+    if player then
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton1(Vector2.new(0, 0))  -- 화면 중앙 클릭 (우클릭)
+    end
+end
