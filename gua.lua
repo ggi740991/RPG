@@ -1437,25 +1437,24 @@ local primaryWasNil = true
 local isFloating = false -- 10000스터드 고정 중인지
 local arrivedAtMemoryPos = false   -- ← 이 변수는 스크립트 최상단이나 전역으로 선언
 
--- 스크립트 최상단에 선언
+-- 전역 변수 (스크립트 상단에 있어야 함)
 local arrivedAtPrimary = false
 local arrivedAtSecondary = false
 local lastPrimaryCount = 0
 local lastSecondaryCount = 0
+local isFloating = false
 
+-- RenderStepped 전체
 RunService.RenderStepped:Connect(function(dt)
-    if not AutoFarmEnabled or not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then
+    if not AutoFarmEnabled or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
         return
     end
 
-    local hrp = LocalPlayer.Character.PrimaryPart
+    local hrp = LocalPlayer.Character.HumanoidRootPart
     local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
     if not humanoid then return end
 
-    -- 내 체력 퍼센트
-    local hpPercent = (humanoid.Health / humanoid.MaxHealth) * 100
-    local HP_THRESHOLD = 30   -- 체력 30% 이상이면 1순위 OK (원하는 값으로 변경)
-
+    -- 타겟 리스트 및 UI 갱신
     UpdateTargetList()
     SelectBestTarget()
     UpdateGUI()
@@ -1463,7 +1462,7 @@ RunService.RenderStepped:Connect(function(dt)
     local primaryName = FixedMonsterNames.Primary
     local secondaryName = FixedMonsterNames.Secondary
 
-    -- 현재 살아있는 몹 수 세기 (스폰 감지용 + 2순위 존재 여부용)
+    -- 현재 살아있는 몹 수 세기
     local currentPrimaryCount = 0
     local currentSecondaryCount = 0
 
@@ -1479,40 +1478,60 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    -- 새 몹 스폰 감지 → arrived 초기화
-    if currentPrimaryCount > lastPrimaryCount then
+    -- 전멸 → 재스폰 감지 (이게 핵심!)
+    local shouldGoToPrimarySpawn = false
+    if currentPrimaryCount > 0 and lastPrimaryCount == 0 then
         arrivedAtPrimary = false
-    end
-    if currentSecondaryCount > lastSecondaryCount then
-        arrivedAtSecondary = false
+        shouldGoToPrimarySpawn = true
+        print("[1순위 전멸 → 재스폰] arrivedAtPrimary 초기화 → 좌표 이동")
     end
 
+    local shouldGoToSecondarySpawn = false
+    if currentSecondaryCount > 0 and lastSecondaryCount == 0 then
+        arrivedAtSecondary = false
+        shouldGoToSecondarySpawn = true
+        print("[2순위 전멸 → 재스폰] arrivedAtSecondary 초기화 → 좌표 이동")
+    end
+
+    -- 카운트 저장 (다음 프레임 비교용)
     lastPrimaryCount = currentPrimaryCount
     lastSecondaryCount = currentSecondaryCount
 
+    -- 타겟 결정
     local targetName = nil
     local targetPos = nil
+    local shouldGoToSpawn = false
 
-    -- 1. 내 체력이 충분하고 1순위가 살아있으면 → 1순위
-    if hpPercent >= HP_THRESHOLD and primaryName and MONSTER_POSITIONS[primaryName] and currentPrimaryCount > 0 then
+    -- 1순위 재스폰 시에만 좌표로
+    if primaryName and currentPrimaryCount > 0 and shouldGoToPrimarySpawn and not arrivedAtPrimary then
         targetName = primaryName
         targetPos = MONSTER_POSITIONS[primaryName]
-    -- 2. 체력 부족이거나 1순위 몹이 없으면 → 2순위 (살아있는 2순위가 있으면)
-    elseif secondaryName and MONSTER_POSITIONS[secondaryName] and currentSecondaryCount > 0 then
+        shouldGoToSpawn = true
+    -- 1순위가 없고 2순위 재스폰 시에만
+    elseif secondaryName and currentSecondaryCount > 0 and shouldGoToSecondarySpawn and not arrivedAtSecondary then
         targetName = secondaryName
         targetPos = MONSTER_POSITIONS[secondaryName]
+        shouldGoToSpawn = true
     end
 
-    -- ==============================================
-    -- 결정된 타겟으로 이동 (좌표 한 번만)
-    -- ==============================================
-    if targetName and targetPos then
+    -- 1. 좌표로 이동 (재스폰 시 한 번만)
+    if shouldGoToSpawn and targetPos then
         local destination = targetPos + Vector3.new(0, 5, 0)
-        local dist = (hrp.Position - destination).Magnitude
+        local distance = (hrp.Position - destination).Magnitude
 
-        local arrivedVar = (targetName == primaryName) and arrivedAtPrimary or arrivedAtSecondary
+        -- 도착 판정
+        if distance < 20 then
+            if targetName == primaryName then
+                arrivedAtPrimary = true
+                print("[1순위 좌표 도착] → 이제 실제 몹 따라감")
+            else
+                arrivedAtSecondary = true
+                print("[2순위 좌표 도착] → 이제 실제 몹 따라감")
+            end
+        end
 
-        if not arrivedVar then
+        -- 아직 멀면 이동
+        if distance > 15 then
             if MoveMode == "Instant" then
                 pcall(function()
                     hrp.CFrame = CFrame.new(destination)
@@ -1521,7 +1540,7 @@ RunService.RenderStepped:Connect(function(dt)
                 end)
             else
                 local speedThisFrame = MOVE_SPEED * dt
-                if dist > 1 then
+                if distance > 1 then
                     local direction = (destination - hrp.Position).Unit
                     local newPos = hrp.Position + direction * speedThisFrame
                     pcall(function()
@@ -1531,53 +1550,14 @@ RunService.RenderStepped:Connect(function(dt)
                 end
             end
 
-            if dist < 20 then
-                if targetName == primaryName then
-                    arrivedAtPrimary = true
-                else
-                    arrivedAtSecondary = true
-                end
-            end
-
             isFloating = false
-            return
+            return  -- 좌표 이동 중에는 몹 따라가기 스킵
         end
-
-        -- 좌표 도착 후 → 해당 타겟 따라가기
-        if CurrentTarget and CurrentTarget.Name == targetName and CurrentTarget.Parent then
-            local mobHrp = CurrentTarget:FindFirstChild("HumanoidRootPart") or CurrentTarget.PrimaryPart
-            if mobHrp then
-                local offset = GetDirectionLocalOffset(TP_DIRECTION, TP_DISTANCE)
-                local targetPos = (mobHrp.CFrame * CFrame.new(offset)).Position
-
-                pcall(function()
-                    if MoveMode == "Instant" then
-                        hrp.CFrame = CFrame.new(targetPos, mobHrp.Position)
-                    else
-                        local current = hrp.Position
-                        local lerp = math.min(30 * dt, 1)
-                        local newX = current.X + (targetPos.X - current.X) * lerp
-                        local newZ = current.Z + (targetPos.Z - current.Z) * lerp
-                        hrp.CFrame = CFrame.new(Vector3.new(newX, targetPos.Y, newZ), mobHrp.Position)
-                    end
-                    hrp.Velocity = Vector3.new(0, 0, 0)
-                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                end)
-            end
-        end
-
-        isFloating = false
-        return
     end
 
-    -- 둘 다 없거나 조건 불만족 → 일반 동작
-    arrivedAtPrimary = false
-    arrivedAtSecondary = false
-
+    -- 2. 좌표 도착 후 → 실제 몹 따라가기
     if CurrentTarget and CurrentTarget.Parent then
-        local mobHrp = CurrentTarget:FindFirstChild("HumanoidRootPart") 
-                   or CurrentTarget.PrimaryPart
-
+        local mobHrp = CurrentTarget:FindFirstChild("HumanoidRootPart") or CurrentTarget.PrimaryPart
         if mobHrp then
             local offset = GetDirectionLocalOffset(TP_DIRECTION, TP_DISTANCE)
             local targetPos = (mobHrp.CFrame * CFrame.new(offset)).Position
@@ -1596,19 +1576,17 @@ RunService.RenderStepped:Connect(function(dt)
                 hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
             end)
         end
-    else
-        if not isFloating then
-            pcall(function()
-                local floatPos = hrp.Position + Vector3.new(0, 100, 0)
-                hrp.CFrame = CFrame.new(floatPos)
-                hrp.Velocity = Vector3.new(0, 0, 0)
-                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            end)
-            isFloating = true
-        else
-            hrp.Velocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-        end
+        isFloating = false
+        return
+    end
+
+    -- 3. 타겟 없음 → 부양
+    if not isFloating then
+        pcall(function()
+            local floatPos = hrp.Position + Vector3.new(0, 10, 0)
+            hrp.CFrame = CFrame.new(floatPos)
+        end)
+        isFloating = true
     end
 end)
 -- ==================== 최종 세련된 오토클릭 + 완벽 속도 슬라이더 ====================
@@ -2060,17 +2038,3 @@ game.Players.LocalPlayer.AncestryChanged:Connect(function()
         end
     end
 end)
-
-local VirtualUser = game:GetService("VirtualUser")
-local Players = game:GetService("Players")
-
-local player = Players.LocalPlayer
-
-while true do
-    task.wait(600)  -- 5분 = 300초
-    
-    if player then
-        VirtualUser:CaptureController()
-        VirtualUser:ClickButton1(Vector2.new(0, 0))  -- 화면 중앙 클릭 (우클릭)
-    end
-end
