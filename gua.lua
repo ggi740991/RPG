@@ -93,6 +93,7 @@ local AutoClickEnabled = false
 local AutoClickLoopRunning = false
 local ClickInterval = 0.1
 local ClickPressTime = 0.01
+local Y_OFFSET = 0 -- 기본 0
 -- 상태
 local AutoFarmEnabled = false
 local CurrentTarget = nil
@@ -116,9 +117,7 @@ local function GetDirectionLocalOffset(direction, distance)
     elseif direction == "Up" then
         return Vector3.new(0, distance, 0) -- 기존: 순수 위
     elseif direction == "Down" then
-        -- ✅ 새로 추가: 뒤(Z+) + 아래(Y-) 대각선 (정확히 몬스터 뒤에서 아래로!)
-        return Vector3.new(0, -distance * 0.7, distance * 0.8)
-        -- Y: -70% (아래로 충분히), Z: +80% (뒤로 충분히) → 완벽 대각선
+        return Vector3.new(0, -distance, 0) -- ✅ 순수 아래로 변경 (대각선 제거)
     else
         return Vector3.new(0, 0, distance)
     end
@@ -931,10 +930,11 @@ local function CreateGUI()
         end)
     end
     CreateSlider(MainContainer, "오프셋 거리 (stud)", 0, 80, TP_DISTANCE, function(v) TP_DISTANCE = v end, 100)
+    CreateSlider(MainContainer, "Y 오프셋 (stud)", -50, 50, Y_OFFSET, function(v) Y_OFFSET = math.floor(v) end, 220)
     CreateSlider(MainContainer, "속도 (stud/s)", SPEED_MIN, SPEED_MAX, MOVE_SPEED, function(v) MOVE_SPEED = math.clamp(math.floor(v), SPEED_MIN, SPEED_MAX) end, 160)
     local modeBtn = Instance.new("TextButton")
     modeBtn.Size = UDim2.new(0.9, 0, 0, 36)
-    modeBtn.Position = UDim2.new(0.05, 0, 0, 220)
+    modeBtn.Position = UDim2.new(0.05, 0, 0, 270)
     modeBtn.BackgroundColor3 = Color3.fromRGB(26,26,26)
     modeBtn.Text = "모드: "..MoveMode
     modeBtn.Font = Enum.Font.GothamSemibold
@@ -1557,33 +1557,36 @@ RunService.RenderStepped:Connect(function(dt)
 
     -- 2. 좌표 도착 후 → 실제 몹 따라가기
     if CurrentTarget and CurrentTarget.Parent then
-        local mobHrp = CurrentTarget:FindFirstChild("HumanoidRootPart") or CurrentTarget.PrimaryPart
-        if mobHrp then
-            local offset = GetDirectionLocalOffset(TP_DIRECTION, TP_DISTANCE)
-            local targetPos = (mobHrp.CFrame * CFrame.new(offset)).Position
-
-            pcall(function()
-                if MoveMode == "Instant" then
-                    hrp.CFrame = CFrame.new(targetPos, mobHrp.Position)
-                else
-                    local current = hrp.Position
-                    local lerp = math.min(30 * dt, 1)
-                    local newX = current.X + (targetPos.X - current.X) * lerp
-                    local newZ = current.Z + (targetPos.Z - current.Z) * lerp
-                    hrp.CFrame = CFrame.new(Vector3.new(newX, targetPos.Y, newZ), mobHrp.Position)
-                end
-                hrp.Velocity = Vector3.new(0, 0, 0)
-                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            end)
-        end
-        isFloating = false
-        return
+    local mobHrp = CurrentTarget:FindFirstChild("HumanoidRootPart") or CurrentTarget.PrimaryPart
+    if mobHrp then
+        local offset = GetDirectionLocalOffset(TP_DIRECTION, TP_DISTANCE)
+        -- ✅ Y 오프셋 추가
+        offset = offset + Vector3.new(0, Y_OFFSET, 0)
+        local targetPos = (mobHrp.CFrame * CFrame.new(offset)).Position
+        pcall(function()
+            if MoveMode == "Instant" then
+                hrp.CFrame = CFrame.new(targetPos, mobHrp.Position)
+            else
+                local current = hrp.Position
+                local lerp = math.min(30 * dt, 1)
+                local newX = current.X + (targetPos.X - current.X) * lerp
+                local newZ = current.Z + (targetPos.Z - current.Z) * lerp
+                -- ✅ Y 오프셋 반영된 위치로 이동
+                local finalY = targetPos.Y + Y_OFFSET
+                hrp.CFrame = CFrame.new(Vector3.new(newX, finalY, newZ), mobHrp.Position)
+            end
+            hrp.Velocity = Vector3.new(0, 0, 0)
+            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        end)
     end
+    isFloating = false
+    return
+end
 
     -- 3. 타겟 없음 → 부양
     if not isFloating then
         pcall(function()
-            local floatPos = hrp.Position + Vector3.new(0, 10, 0)
+            local floatPos = hrp.Position + Vector3.new(0, 1, 0)
             hrp.CFrame = CFrame.new(floatPos)
         end)
         isFloating = true
@@ -1933,13 +1936,15 @@ local function ShowNotify(title, content, duration)
     print("[" .. title .. "] " .. content)
 end
 
--- 헬퍼 함수
 local function clickGuiObject(obj)
     if not obj or not obj.Visible or not obj.Active then return end
 
     local pos = obj.AbsolutePosition
     local size = obj.AbsoluteSize
-    local topbarInset = GuiService:GetGuiInset().Y
+
+    -- topbarInset 제거하고 테스트
+    -- local topbarInset = GuiService:GetGuiInset().Y   ← 이 줄 주석 처리
+    local topbarInset = 0
 
     local x = pos.X + size.X / 2
     local y = pos.Y + size.Y / 2 + topbarInset
@@ -1991,13 +1996,13 @@ task.spawn(function()
             -- 키패드 열기
             if not keyFrame.Visible then
                 clickGuiObject(outputBox)
-                task.wait(0.75)
+                task.wait(2.75)
             end
 
             -- 리셋 (필요하면 여러 번)
             local resetBtn = resetFrame and resetFrame:FindFirstChildWhichIsA("TextButton")
             if resetBtn then
-                for _ = 1, 6 do
+                for _ = 1, 10 do
                     if outputBox.Text == "" then break end
                     clickGuiObject(resetBtn)
                     task.wait(0.3)
