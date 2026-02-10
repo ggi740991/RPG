@@ -1943,7 +1943,7 @@ local function clickGuiObject(obj)
     local size = obj.AbsoluteSize
 
 
-    local topbarInset = GuiService:GetGuiInset().Y   ← 이 줄 주석 처리
+    local topbarInset = GuiService:GetGuiInset().Y
     local topbarInset = 0
 
     local x = pos.X + size.X / 2
