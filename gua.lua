@@ -1942,8 +1942,8 @@ local function clickGuiObject(obj)
     local pos = obj.AbsolutePosition
     local size = obj.AbsoluteSize
 
-    -- topbarInset 제거하고 테스트
-    -- local topbarInset = GuiService:GetGuiInset().Y   ← 이 줄 주석 처리
+
+    local topbarInset = GuiService:GetGuiInset().Y   ← 이 줄 주석 처리
     local topbarInset = 0
 
     local x = pos.X + size.X / 2
