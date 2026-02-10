@@ -1902,56 +1902,108 @@ local GuiService = game:GetService("GuiService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui", 10)
-
 if not playerGui then
-    warn("PlayerGui를 찾을 수 없습니다. 스크립트 종료")
+    warn("PlayerGui 못 찾음 - 종료")
     return
 end
 
--- 알림용 GUI (화면 중앙 위쪽에 잠깐 표시)
+-- 바로 켜짐 (토글 UI 제거)
+local AutoBypassEnabled = true
+
+local successCount = 0
+
 local NotifyGui = Instance.new("ScreenGui")
 NotifyGui.Name = "NotifyGui"
 NotifyGui.ResetOnSpawn = false
 NotifyGui.Parent = playerGui
 
 local NotifyLabel = Instance.new("TextLabel")
-NotifyLabel.Size = UDim2.new(0, 320, 0, 60)
-NotifyLabel.Position = UDim2.new(0.5, -160, 0.08, 0)
-NotifyLabel.BackgroundTransparency = 0.45
-NotifyLabel.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-NotifyLabel.TextColor3 = Color3.fromRGB(210, 255, 210)
+NotifyLabel.Size = UDim2.new(0, 300, 0, 50)
+NotifyLabel.Position = UDim2.new(0.5, -150, 0.1, 0)
+NotifyLabel.BackgroundTransparency = 0.4
+NotifyLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+NotifyLabel.TextColor3 = Color3.fromRGB(200, 255, 200)
 NotifyLabel.Font = Enum.Font.SourceSansBold
-NotifyLabel.TextSize = 19
+NotifyLabel.TextSize = 18
 NotifyLabel.Text = ""
 NotifyLabel.Visible = false
-NotifyLabel.TextWrapped = true
 NotifyLabel.Parent = NotifyGui
 
 local function ShowNotify(title, content, duration)
     NotifyLabel.Text = title .. "\n" .. content
     NotifyLabel.Visible = true
-    task.delay(duration or 3.2, function()
+    task.delay(duration or 3, function()
         NotifyLabel.Visible = false
     end)
     print("[" .. title .. "] " .. content)
 end
 
+local CounterGui = Instance.new("ScreenGui")
+CounterGui.Name = "CounterGui"
+CounterGui.ResetOnSpawn = false
+CounterGui.Parent = playerGui
+
+local CounterFrame = Instance.new("Frame")
+CounterFrame.Size = UDim2.new(0, 160, 0, 38)
+CounterFrame.Position = UDim2.new(1, -180, 1, -50)
+CounterFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+CounterFrame.BackgroundTransparency = 0.35
+CounterFrame.BorderSizePixel = 0
+CounterFrame.Parent = CounterGui
+
+local CounterLabel = Instance.new("TextLabel")
+CounterLabel.Size = UDim2.new(1, -8, 1, -6)
+CounterLabel.Position = UDim2.new(0, 4, 0, 3)
+CounterLabel.BackgroundTransparency = 1
+CounterLabel.TextColor3 = Color3.fromRGB(180, 255, 180)
+CounterLabel.Font = Enum.Font.SourceSansBold
+CounterLabel.TextSize = 18
+CounterLabel.Text = "성공: 0 회"
+CounterLabel.Parent = CounterFrame
+
+local function updateCounter()
+    CounterLabel.Text = "성공: " .. successCount .. " 회"
+end
+
 local function clickGuiObject(obj)
-    if not obj or not obj.Visible or not obj.Active then return end
+    if not obj or not obj:IsDescendantOf(playerGui) then
+        return false
+    end
+
+    local waitTime = 0
+    while (not obj.Visible or obj.AbsoluteSize.Magnitude < 1) and waitTime < 1.5 do
+        task.wait(0.08)
+        waitTime = waitTime + 0.08
+    end
+
+    if not obj.Visible or obj.AbsoluteSize.Magnitude < 1 then
+        return false
+    end
 
     local pos = obj.AbsolutePosition
     local size = obj.AbsoluteSize
 
+    if pos.Magnitude < 20 then
+        task.wait(0.15)
+        pos = obj.AbsolutePosition
+        size = obj.AbsoluteSize
+    end
 
-    local topbarInset = GuiService:GetGuiInset().Y
-    local topbarInset = 0
+    local inset = GuiService:GetGuiInset()
+    local topbarHeight = inset.Y
 
-    local x = pos.X + size.X / 2
-    local y = pos.Y + size.Y / 2 + topbarInset
+    local clickX = pos.X + size.X * 0.5
+    local clickY = pos.Y + size.Y * 0.5 + topbarHeight
 
-    VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
-    task.wait(0.04)
-    VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
+    local viewport = workspace.CurrentCamera.ViewportSize
+    clickX = math.clamp(clickX, 8, viewport.X - 8)
+    clickY = math.clamp(clickY, 8, viewport.Y - 8)
+
+    VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, true, game, 0)
+    task.wait(0.03 + math.random(3, 9) / 100)
+    VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, false, game, 0)
+
+    return true
 end
 
 local function findDigitButton(keyFrame, digit)
@@ -1963,12 +2015,10 @@ local function findDigitButton(keyFrame, digit)
     return nil
 end
 
--- 메인 자동 우회 루프
-ShowNotify("자동 우회 시작", "매크로 감지 시 자동 입력합니다", 4.5)
-
 task.spawn(function()
     while true do
-        task.wait(0.9)
+        task.wait(1)
+        if not AutoBypassEnabled then continue end
 
         pcall(function()
             local gui = playerGui:FindFirstChild("MacroGui")
@@ -1989,48 +2039,63 @@ task.spawn(function()
             if not (inputLabel and outputBox) then return end
 
             local targetNum = inputLabel.Text:match("%d%d%d%d")
-            if not targetNum or outputBox.Text == targetNum then return end
+            if not targetNum then return end
 
-            ShowNotify("매크로 감지", "목표 숫자 : " .. targetNum, 3.8)
+            if outputBox.Text == targetNum then return end
 
-            -- 키패드 열기
+            ShowNotify("매크로 감지", "목표: " .. targetNum .. " 입력 시작...", 4)
+
             if not keyFrame.Visible then
-                clickGuiObject(outputBox)
-                task.wait(2.75)
+                local success = clickGuiObject(outputBox)
+                if success then
+                    local waited = 0
+                    while not keyFrame.Visible and waited < 2 do
+                        task.wait(0.12)
+                        waited = waited + 0.12
+                    end
+                end
             end
 
-            -- 리셋 (필요하면 여러 번)
             local resetBtn = resetFrame and resetFrame:FindFirstChildWhichIsA("TextButton")
             if resetBtn then
-                for _ = 1, 10 do
+                for _ = 1, 5 do
                     if outputBox.Text == "" then break end
                     clickGuiObject(resetBtn)
-                    task.wait(0.3)
+                    task.wait(0.32 + math.random(0, 6)/100)
                 end
             end
 
             task.wait(0.45)
 
-            -- 숫자 입력
             if outputBox.Text == "" then
                 for i = 1, #targetNum do
                     local digit = targetNum:sub(i, i)
                     local btn = findDigitButton(keyFrame, digit)
-
                     if btn then
                         clickGuiObject(btn)
-                        task.wait(0.26 + math.random(0, 10) / 100)  -- 살짝 랜덤 딜레이
+                        task.wait(0.26 + math.random(2, 10)/100)
                     else
-                        warn("숫자 버튼을 찾을 수 없음 : " .. digit)
+                        warn("숫자 버튼 못 찾음: " .. digit)
                     end
                 end
-                print("입력 완료 → " .. targetNum)
+
+                print("입력 완료: " .. targetNum)
+
+                task.wait(0.6)
+
+                if outputBox.Text == targetNum then
+                    successCount = successCount + 1
+                    updateCounter()
+                    ShowNotify("우회 성공", "카운트: " .. successCount .. " 회", 3.5)
+                end
             end
 
-            task.wait(2.4)
+            task.wait(2.3)
         end)
     end
 end)
+
+updateCounter()
 
 
 -- 오토팜 OFF 시 노클립 완전 정리 (안전장치)
