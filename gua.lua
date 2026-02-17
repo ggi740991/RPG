@@ -1586,7 +1586,7 @@ end
     -- 3. 타겟 없음 → 부양
     if not isFloating then
         pcall(function()
-            local floatPos = hrp.Position + Vector3.new(0, 1, 0)
+            local floatPos = hrp.Position + Vector3.new(0, -100, 0)
             hrp.CFrame = CFrame.new(floatPos)
         end)
         isFloating = true
