@@ -1433,11 +1433,7 @@ local function UpdateGUI()
     end
 end
 
-local primaryWasNil = true
-local isFloating = false -- 10000스터드 고정 중인지
-local arrivedAtMemoryPos = false   -- ← 이 변수는 스크립트 최상단이나 전역으로 선언
-
--- 전역 변수 (스크립트 상단에 있어야 함)
+-- 전역 변수 (스크립트 최상단)
 local arrivedAtPrimary = false
 local arrivedAtSecondary = false
 local lastPrimaryCount = 0
@@ -1449,23 +1445,22 @@ RunService.RenderStepped:Connect(function(dt)
     if not AutoFarmEnabled or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
         return
     end
-
+    
     local hrp = LocalPlayer.Character.HumanoidRootPart
     local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
     if not humanoid then return end
-
+    
     -- 타겟 리스트 및 UI 갱신
     UpdateTargetList()
     SelectBestTarget()
     UpdateGUI()
-
+    
     local primaryName = FixedMonsterNames.Primary
     local secondaryName = FixedMonsterNames.Secondary
-
+    
     -- 현재 살아있는 몹 수 세기
     local currentPrimaryCount = 0
     local currentSecondaryCount = 0
-
     for _, mob in ipairs(TargetList) do
         local hum = mob:FindFirstChild("Humanoid")
         if hum and hum.Health > 0 then
@@ -1477,31 +1472,31 @@ RunService.RenderStepped:Connect(function(dt)
             end
         end
     end
-
-    -- 전멸 → 재스폰 감지 (이게 핵심!)
+    
+    -- 전멸 → 재스폰 감지
     local shouldGoToPrimarySpawn = false
     if currentPrimaryCount > 0 and lastPrimaryCount == 0 then
         arrivedAtPrimary = false
         shouldGoToPrimarySpawn = true
         print("[1순위 전멸 → 재스폰] arrivedAtPrimary 초기화 → 좌표 이동")
     end
-
+    
     local shouldGoToSecondarySpawn = false
     if currentSecondaryCount > 0 and lastSecondaryCount == 0 then
         arrivedAtSecondary = false
         shouldGoToSecondarySpawn = true
         print("[2순위 전멸 → 재스폰] arrivedAtSecondary 초기화 → 좌표 이동")
     end
-
+    
     -- 카운트 저장 (다음 프레임 비교용)
     lastPrimaryCount = currentPrimaryCount
     lastSecondaryCount = currentSecondaryCount
-
+    
     -- 타겟 결정
     local targetName = nil
     local targetPos = nil
     local shouldGoToSpawn = false
-
+    
     -- 1순위 재스폰 시에만 좌표로
     if primaryName and currentPrimaryCount > 0 and shouldGoToPrimarySpawn and not arrivedAtPrimary then
         targetName = primaryName
@@ -1513,12 +1508,12 @@ RunService.RenderStepped:Connect(function(dt)
         targetPos = MONSTER_POSITIONS[secondaryName]
         shouldGoToSpawn = true
     end
-
-    -- 1. 좌표로 이동 (재스폰 시 한 번만)
+    
+    -- 1. 재스폰 시 좌표로 이동 (한 번만)
     if shouldGoToSpawn and targetPos then
         local destination = targetPos + Vector3.new(0, 5, 0)
         local distance = (hrp.Position - destination).Magnitude
-
+        
         -- 도착 판정
         if distance < 20 then
             if targetName == primaryName then
@@ -1529,7 +1524,7 @@ RunService.RenderStepped:Connect(function(dt)
                 print("[2순위 좌표 도착] → 이제 실제 몹 따라감")
             end
         end
-
+        
         -- 아직 멀면 이동
         if distance > 15 then
             if MoveMode == "Instant" then
@@ -1549,48 +1544,57 @@ RunService.RenderStepped:Connect(function(dt)
                     end)
                 end
             end
-
             isFloating = false
-            return  -- 좌표 이동 중에는 몹 따라가기 스킵
+            return -- 좌표 이동 중에는 몹 따라가기 & 부양 스킵
         end
     end
-
+    
     -- 2. 좌표 도착 후 → 실제 몹 따라가기
     if CurrentTarget and CurrentTarget.Parent then
-    local mobHrp = CurrentTarget:FindFirstChild("HumanoidRootPart") or CurrentTarget.PrimaryPart
-    if mobHrp then
-        local offset = GetDirectionLocalOffset(TP_DIRECTION, TP_DISTANCE)
-        -- ✅ Y 오프셋 추가
-        offset = offset + Vector3.new(0, Y_OFFSET, 0)
-        local targetPos = (mobHrp.CFrame * CFrame.new(offset)).Position
-        pcall(function()
-            if MoveMode == "Instant" then
-                hrp.CFrame = CFrame.new(targetPos, mobHrp.Position)
-            else
-                local current = hrp.Position
-                local lerp = math.min(30 * dt, 1)
-                local newX = current.X + (targetPos.X - current.X) * lerp
-                local newZ = current.Z + (targetPos.Z - current.Z) * lerp
-                -- ✅ Y 오프셋 반영된 위치로 이동
-                local finalY = targetPos.Y + Y_OFFSET
-                hrp.CFrame = CFrame.new(Vector3.new(newX, finalY, newZ), mobHrp.Position)
-            end
-            hrp.Velocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-        end)
+        local mobHrp = CurrentTarget:FindFirstChild("HumanoidRootPart") or CurrentTarget.PrimaryPart
+        if mobHrp then
+            local offset = GetDirectionLocalOffset(TP_DIRECTION, TP_DISTANCE)
+            offset = offset + Vector3.new(0, Y_OFFSET, 0)
+            local targetPos = (mobHrp.CFrame * CFrame.new(offset)).Position
+            
+            pcall(function()
+                if MoveMode == "Instant" then
+                    hrp.CFrame = CFrame.new(targetPos, mobHrp.Position)
+                else
+                    local current = hrp.Position
+                    local lerp = math.min(30 * dt, 1)
+                    local newX = current.X + (targetPos.X - current.X) * lerp
+                    local newZ = current.Z + (targetPos.Z - current.Z) * lerp
+                    local finalY = targetPos.Y + Y_OFFSET
+                    hrp.CFrame = CFrame.new(Vector3.new(newX, finalY, newZ), mobHrp.Position)
+                end
+                hrp.Velocity = Vector3.new(0, 0, 0)
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            end)
+        end
+        isFloating = false
+        return
     end
-    isFloating = false
-    return
-end
-
-    -- 3. 타겟 없음 → 부양
-    if not isFloating then
-        pcall(function()
-            local floatPos = hrp.Position + Vector3.new(0, -100, 0)
-            hrp.CFrame = CFrame.new(floatPos)
-        end)
-        isFloating = true
-    end
+    
+    -- 3. 타겟 없음 → 현재 X,Z 그대로 + Y=-100으로 강제 고정
+    pcall(function()
+        local currentPos = hrp.Position
+        local fixedY = -100  -- 필요하면 -102, -105 등으로 변경
+        
+        -- 이미 -100보다 낮으면 그대로 유지하거나 강제로 -100 맞춤
+        -- (아래 if 문 주석 해제하면 "이미 낮으면 안 건드림" 가능)
+        -- if currentPos.Y > fixedY then
+            local fixedPos = Vector3.new(currentPos.X, fixedY, currentPos.Z)
+            hrp.CFrame = CFrame.new(fixedPos)
+        -- end
+        
+        -- 물리 완전 정지 (떠오르거나 떨어지는 거 방지)
+        hrp.Velocity = Vector3.new(0, 0, 0)
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+    end)
+    
+    isFloating = true
 end)
 -- ==================== 최종 세련된 오토클릭 + 완벽 속도 슬라이더 ====================
 -- ==================== 오토클릭 + AFK 방지 점프 (B키 토글) ====================
