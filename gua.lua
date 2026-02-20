@@ -2118,3 +2118,52 @@ game.Players.LocalPlayer.AncestryChanged:Connect(function()
         end
     end
 end)
+-- ═══════════════════════════════════════════════════════════════
+-- 해상도 자동 스케일링 (맨 밑에 넣기만 하면 모든 GUI 자동 조절됨)
+-- ═══════════════════════════════════════════════════════════════
+
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+-- ScreenGui 찾기
+local ScreenGui = game.CoreGui:FindFirstChild("AutoFarmGUI")
+if not ScreenGui then return end
+
+-- 전체 스케일 컨트롤러 추가
+local GlobalScale = Instance.new("UIScale")
+GlobalScale.Scale = 1.0
+GlobalScale.Parent = ScreenGui
+
+-- 비율 유지 컨트롤러 추가
+local Aspect = Instance.new("UIAspectRatioConstraint")
+Aspect.AspectRatio = 0.84  -- 520/620 비율
+Aspect.Parent = ScreenGui
+
+-- 자동 스케일 계산 함수
+local function UpdateAllGuiScale()
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    
+    local vp = cam.ViewportSize
+    local refW, refH = 1920, 1080
+    
+    local scaleX = vp.X / refW
+    local scaleY = vp.Y / refH
+    local finalScale = math.min(scaleX, scaleY) * 1.05
+    
+    -- 범위 제한
+    finalScale = math.clamp(finalScale, 0.65, 1.4)
+    
+    -- 모바일 강제 축소
+    if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
+        finalScale = math.min(finalScale, 0.82)
+    end
+    
+    GlobalScale.Scale = finalScale
+end
+
+-- 즉시 적용 + 실시간 업데이트
+UpdateAllGuiScale()
+RunService.RenderStepped:Connect(UpdateAllGuiScale)
+
+print("✅ GUI 해상도 자동 스케일링 활성화됨")
