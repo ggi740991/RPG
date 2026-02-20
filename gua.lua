@@ -54,6 +54,7 @@ local spawnList = {
     {name = "파라다이스", pos = Vector3.new(1021.406494140625, 78.89376068115234, 2947.400146484375)},
     {name = "프로스티아", pos = Vector3.new(-242.86607360839844, 18.665813446044922, 3275.5498046875)},
     {name = "프로스티아2", pos = Vector3.new(9.930479049682617, 32.68927764892578, 4849.27490234375)},
+    {name = "World", pos = Vector3.new(-1223.001220703125, 41.988922119140625, -288.90130615234375)},
     {name = "아틀란티스 입구", pos = Vector3.new(1455.9371337890625, 217.05123901367188, -279.80255126953125)},
 }
 -- nameToKey 제거! (이름 그대로 사용)
@@ -794,6 +795,11 @@ local function CreateGUI()
                 and workspace.Map.Teleport:FindFirstChild("다지엇음")
             if portal then
                 table.insert(spawnList, {name = "2차원 포털", pos = Vector3.new(-37.03, 174.36, -2232.93)})
+            end
+            local portal = workspace:FindFirstChild("Map")
+                and workspace.Map:FindFirstChild("초원")
+            if portal then
+                table.insert(spawnList, {name = "1차원 가는곳", pos = Vector3.new(-1233, 42, -289)})
             end
         end
         if #spawnList == 0 then
