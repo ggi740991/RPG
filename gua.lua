@@ -255,7 +255,7 @@ local function CreateGUI()
             end
         end)
         plus.MouseButton1Click:Connect(function()
-            if scale < 1.0 then
+            if scale < 2.0 then
                 ApplyScale(scale + 0.05)
             end
         end)
