@@ -754,7 +754,7 @@ local function CreateGUI()
         layout.Padding = UDim.new(0, 6)
         layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
         local function updateCanvas()
-            Scroll.CanvasSize = UDim2.new(0,0,0, layout.AbsoluteContentSize.Y + 16)
+            Scroll.CanvasSize = UDim2.new(0,0,0, layout.AbsoluteContentSize.Y + 600)
         end
         layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateCanvas)
         local spawnList = {}
