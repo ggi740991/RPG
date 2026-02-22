@@ -255,7 +255,7 @@ local function CreateGUI()
             end
         end)
         plus.MouseButton1Click:Connect(function()
-            if scale < 2.0 then
+            if scale < 3.0 then
                 ApplyScale(scale + 0.05)
             end
         end)
@@ -760,6 +760,11 @@ local function CreateGUI()
         local spawnList = {}
         local spawnFolder = workspace:FindFirstChild("SpawnPoint") or workspace:FindFirstChild("SpawnPoints")
         if spawnFolder then
+            local portal = workspace:FindFirstChild("Map")
+                and workspace.Map:FindFirstChild("초원")
+            if portal then
+                table.insert(spawnList, {name = "1차원 가는곳", pos = Vector3.new(-1233, 42, -289)})
+            end
             if spawnFolder:FindFirstChild("루나마을 스폰") then
                 table.insert(spawnList, {name = "루나마을 스폰", pos = Vector3.new(-44.03, 130.3, 1996.13)})
             end
@@ -796,11 +801,7 @@ local function CreateGUI()
             if portal then
                 table.insert(spawnList, {name = "2차원 포털", pos = Vector3.new(-37.03, 174.36, -2232.93)})
             end
-            local portal = workspace:FindFirstChild("Map")
-                and workspace.Map:FindFirstChild("초원")
-            if portal then
-                table.insert(spawnList, {name = "1차원 가는곳", pos = Vector3.new(-1233, 42, -289)})
-            end
+            
         end
         if #spawnList == 0 then
             local lbl = Instance.new("TextLabel")
@@ -2060,7 +2061,7 @@ task.spawn(function()
                 if success then
                     local waited = 0
                     while not keyFrame.Visible and waited < 2 do
-                        task.wait(0.12)
+                        task.wait(0.52)
                         waited = waited + 0.12
                     end
                 end
@@ -2071,11 +2072,11 @@ task.spawn(function()
                 for _ = 1, 5 do
                     if outputBox.Text == "" then break end
                     clickGuiObject(resetBtn)
-                    task.wait(0.32 + math.random(0, 6)/100)
+                    task.wait(0.42 + math.random(0, 6)/100)
                 end
             end
 
-            task.wait(0.45)
+            task.wait(0.55)
 
             if outputBox.Text == "" then
                 for i = 1, #targetNum do
@@ -2091,7 +2092,7 @@ task.spawn(function()
 
                 print("입력 완료: " .. targetNum)
 
-                task.wait(0.6)
+                task.wait(0.7)
 
                 if outputBox.Text == targetNum then
                     successCount = successCount + 1
