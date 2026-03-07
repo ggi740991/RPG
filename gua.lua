@@ -428,7 +428,110 @@ local function CreateGUI()
     end
     local toggleBtn = NewActionButton(MainContainer, 0, -124, "오토팜 OFF", Color3.fromRGB(0,160,100))
     GUIObjects.ToggleButton = toggleBtn
+
     local selectBtn = NewActionButton(MainContainer, 0.55, -124, "타겟 선택", Color3.fromRGB(255,140,0))
+
+    -- ────────────────────────────────────────────────
+    -- 토글키 설정 버튼 (오토팜 버튼 바로 아래)
+    -- ────────────────────────────────────────────────
+
+    local ToggleKey = Enum.KeyCode.F1           -- 기본 토글 키 (원하는 키로 변경 가능)
+    local IsWaitingForKey = false
+
+    local keyBindBtn = Instance.new("TextButton")
+    keyBindBtn.Name = "KeyBindButton"
+    keyBindBtn.Size = UDim2.new(0.435, 0, 0, 38)
+    keyBindBtn.Position = UDim2.new(0.02, 0, 1, -124 + 48)   -- 오토팜 버튼 바로 아래 (높이 38 + 여백 10)
+    keyBindBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+    keyBindBtn.Text = "오토팜 토글키 설정 (" .. ToggleKey.Name .. ")"
+    keyBindBtn.TextColor3 = Color3.fromRGB(250, 250, 250)
+    keyBindBtn.Font = Enum.Font.GothamSemibold
+    keyBindBtn.TextSize = 14
+    keyBindBtn.ZIndex = 10  -- 클릭 우선순위 높임 (필요시)
+    keyBindBtn.Parent = MainContainer
+
+    ApplyRounded(keyBindBtn, 8)
+    ApplyStroke(keyBindBtn, 1.2, Color3.fromRGB(100, 140, 255))
+
+    -- 키 설정 버튼 클릭 이벤트
+    keyBindBtn.MouseButton1Click:Connect(function()
+        if IsWaitingForKey then return end
+        
+        IsWaitingForKey = true
+        keyBindBtn.Text = "키 입력 대기중... 아무 키나 누르세요"
+        keyBindBtn.BackgroundColor3 = Color3.fromRGB(255, 170, 60)
+        
+        -- 15초 후 자동 취소
+        task.spawn(function()
+            task.wait(15)
+            if IsWaitingForKey then
+                IsWaitingForKey = false
+                keyBindBtn.Text = "토글키 설정 (" .. ToggleKey.Name .. ")"
+                keyBindBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+            end
+        end)
+    end)
+
+    -- ────────────────────────────────────────────────
+    -- 키 입력 감지 및 오토팜 토글
+    -- ────────────────────────────────────────────────
+
+    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        
+        -- 키 설정 모드
+        if IsWaitingForKey and input.KeyCode ~= Enum.KeyCode.Unknown then
+            ToggleKey = input.KeyCode
+            IsWaitingForKey = false
+            
+            keyBindBtn.Text = "토글키 설정 (" .. ToggleKey.Name .. ")"
+            keyBindBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+            
+            print("토글키 변경 → " .. ToggleKey.Name)
+            return
+        end
+        
+        -- 토글키 눌렀을 때 오토팜 토글
+        if input.KeyCode == ToggleKey then
+            AutoFarmEnabled = not AutoFarmEnabled
+            
+            toggleBtn.BackgroundColor3 = AutoFarmEnabled and Color3.fromRGB(18,90,18) or Color3.fromRGB(26,26,26)
+            toggleBtn.Text = AutoFarmEnabled and "오토팜 ON" or "오토팜 OFF"
+            
+            if AutoFarmEnabled then
+                NoclipEnabled = true
+                print("오토팜 ON (" .. ToggleKey.Name .. " 키)")
+                NoclipConnection = RunService.Stepped:Connect(function()
+                    if NoclipEnabled and LocalPlayer.Character then
+                        for _, v in ipairs(LocalPlayer.Character:GetDescendants()) do
+                            if v:IsA("BasePart") and v ~= LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                                v.CanCollide = false
+                            end
+                        end
+                    end
+                end)
+            else
+                NoclipEnabled = false
+                if NoclipConnection then
+                    NoclipConnection:Disconnect()
+                    NoclipConnection = nil
+                end
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    local hrp = LocalPlayer.Character.HumanoidRootPart
+                    pcall(function()
+                        hrp.CFrame = hrp.CFrame + Vector3.new(0, 50, 0)
+                        print("오토팜 OFF → 50스터드 위로 올림 (자연 착지)")
+                    end)
+                end
+                print("오토팜 OFF")
+            end
+        end
+    end)
+
+    -- ────────────────────────────────────────────────
+    -- 스폰포인트 버튼 (기존 그대로)
+    -- ────────────────────────────────────────────────
+
     local spawnBtn = Instance.new("TextButton")
     spawnBtn.Size = UDim2.new(0.9, 0, 0, 36)
     spawnBtn.Position = UDim2.new(0.05, 0, 1, -170)
@@ -440,10 +543,12 @@ local function CreateGUI()
     spawnBtn.Parent = MainContainer
     ApplyRounded(spawnBtn, 8)
     ApplyStroke(spawnBtn, 1, Color3.fromRGB(240,240,240))
+
     toggleBtn.MouseButton1Click:Connect(function()
         AutoFarmEnabled = not AutoFarmEnabled
         toggleBtn.BackgroundColor3 = AutoFarmEnabled and Color3.fromRGB(18,90,18) or Color3.fromRGB(26,26,26)
         toggleBtn.Text = AutoFarmEnabled and "오토팜 ON" or "오토팜 OFF"
+        
         if AutoFarmEnabled then
             NoclipEnabled = true
             print("오토팜 ON")
@@ -462,7 +567,6 @@ local function CreateGUI()
                 NoclipConnection:Disconnect()
                 NoclipConnection = nil
             end
-            -- 오토팜 OFF 시 50스터드 위로 한 번만 올리고 자연 착지
             if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
                 local hrp = LocalPlayer.Character.HumanoidRootPart
                 pcall(function()
